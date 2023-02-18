@@ -1,6 +1,8 @@
 ---
-- name: Install Java 1.7
-  yum: name=java-1.7.0-openjdk state=present
+- name: Install Java latest
+  package:
+    name: openjdk-11-jdk
+    state: present
 
 - name: add group "tomcat"
   group: name={{tomcat_group}}
@@ -11,13 +13,13 @@
   become_method: sudo
 
 - name: Download Tomcat
-  get_url: url=http://archive.apache.org/dist/tomcat/tomcat-7/v7.0.61/bin/apache-tomcat-7.0.61.tar.gz dest=/opt/apache-tomcat-7.0.61.tar.gz
+  get_url: url=http://archive.apache.org/dist/tomcat/tomcat-11/v11.0.0-M1/bin/apache-tomcat-11.0.0-M1.tar.gz dest=/opt/apache-tomcat-11.0.0.tar.gz
 
 - name: Extract archive
-  command: chdir=/usr/share /bin/tar xvf /opt/apache-tomcat-7.0.61.tar.gz -C /opt/ creates=/opt/apache-tomcat-7.0.61
+  command: chdir=/usr/share /bin/tar xvf /opt/apache-tomcat-11.0.0.tar.gz -C /opt/ creates=/opt/apache-tomcat-11.0.0-M1
 
 - name: Symlink install directory
-  file: src=/opt/apache-tomcat-7.0.61 path=/usr/share/tomcat state=link
+  file: src=/opt/apache-tomcat-11.0.0-M1 path=/usr/share/tomcat state=link
 
 - name: Change ownership of Tomcat installation
   file: path=/usr/share/tomcat/ owner=tomcat group=tomcat state=directory recurse=yes
@@ -28,14 +30,14 @@
   
 - name: Create  sample directory
   file: 
-    path: "/opt/apache-tomcat-7.0.61/webapps/samples"
+    path: "/opt/apache-tomcat-11.0.0-M1/webapps/samples"
     state: directory
     mode: 0777
   become: true
   
 
 - name: copy war file
-  copy: src=./target/LoginWebApp-1.war dest=/opt/apache-tomcat-7.0.61/webapps/
+  copy: src=./target/LoginWebApp-1.war dest=/opt/apache-tomcat-11.0.0-M1/webapps/
 
 
   notify: restart tomcat
@@ -43,8 +45,53 @@
 - name: Install Tomcat init script
   copy: src=tomcat-initscript.sh dest=/etc/init.d/tomcat mode=0755
 
-- name: Start Tomcat
-  service: name=tomcat state=started enabled=yes
+- name: Creating a service file
+  become: yes
+  copy: 
+   content: |-
+     [Unit]
+     Description=Tomcat Service
+     Requires=network.target
+     After=network.target
 
-- name: wait for tomcat to start
-  wait_for: port={{http_port}}
+     [Service]
+     Type=forking
+     User=tomcat
+     Environment="CATALINA_PID=/opt/apache-tomcat-11.0.0-M1/logs/tomcat.pid"
+     Environment="CATALINA_BASE=/opt/apache-tomcat-11.0.0-M1"
+     Environment="CATALINA_HOME=/opt/apache-tomcat-11.0.0-M1"
+     Environment="CATALINA_OPTS=-Xms512M -Xmx1024M -server -XX:+UseParallelGC"
+
+     ExecStart=/opt/apache-tomcat-11.0.0-M1/bin/startup.sh
+     ExecStop=/opt/apache-tomcat-11.0.0-M1/bin/shutdown.sh
+     Restart=on-abnormal
+
+     [Install]
+     WantedBy=multi-user.target
+   dest: /etc/systemd/system/tomcat.service
+
+- name: Reload the SystemD to re-read configurations
+  become: yes
+  systemd:
+     daemon-reload: yes
+
+- name: Enable the tomcat service and start
+  become: yes
+  systemd:
+     name: tomcat
+     enabled: yes
+     state: started
+
+- name: Connect to Tomcat server on port 8080 and check status 200 - Try 5 times
+  tags: test
+  uri:
+    url: http://localhost:8080
+  register: result
+  until: "result.status == 200"
+  retries: 5
+  delay: 10
+  #- name: Start Tomcat
+  #service: name=tomcat state=started enabled=yes
+
+  #- name: wait for tomcat to start
+  #wait_for: port={{http_port}}
