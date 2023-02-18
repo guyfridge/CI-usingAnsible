@@ -1,9 +1,8 @@
-        
-- hosts: webservers
+---
+- name: install/restart tomcat8 service
+  hosts: webservers
+  vars:
+    download_url: https://dlcdn.apache.org/tomcat/tomcat-8/v8.5.85/bin/apache-tomcat-8.5.85.tar.gz
   become: true
-  become_user: root
-  gather_facts: false
-  tasks:
-    - include_role:
-        name: tomcat
-      
+  roles:
+    - role: tomcat
